@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Navbar } from "@/components/navbar";
 import { Sidebar } from "@/components/sidebar";
 import { DataTablePagination } from "@/components/data-table-pagination";
+import { apiEndpoints } from "@/lib/api-config";
 import axios from 'axios';
 
 // Define types locally or import
@@ -78,7 +79,7 @@ export default function Home() {
 
   const fetchHistory = async () => {
     try {
-      const res = await axios.get('http://localhost:5000/api/dashboard');
+      const res = await axios.get(apiEndpoints.dashboard);
       setHistory(res.data);
     } catch (error) {
       console.error("Failed to fetch history");
@@ -91,7 +92,7 @@ export default function Home() {
 
   const handleStatusUpdate = async (id: string, newStatus: string) => {
     try {
-      await axios.put('http://localhost:5000/api/status', { id, status: newStatus });
+      await axios.put(apiEndpoints.status, { id, status: newStatus });
       toast({ title: "Status Updated", description: "Record updated successfully." });
       fetchHistory(); // Refresh
     } catch (error) {
@@ -101,7 +102,7 @@ export default function Home() {
 
   const handleDelete = async (id: string) => {
     try {
-      await axios.delete(`http://localhost:5000/api/record/${id}`);
+      await axios.delete(apiEndpoints.deleteRecord(id));
       toast({ title: "Deleted", description: "Record deleted successfully." });
       fetchHistory();
     } catch (error) {
@@ -118,7 +119,7 @@ export default function Home() {
     if (!domain) return;
     setLoading(true);
     try {
-      const res = await axios.post('http://localhost:5000/api/search', { domain });
+      const res = await axios.post(apiEndpoints.search, { domain });
       setEmployees(res.data);
       if (res.data.length === 0) {
         toast({
@@ -142,7 +143,7 @@ export default function Home() {
     if (!selectedEmployee) return;
     setEmailLoading(true);
     try {
-      await axios.post('http://localhost:5000/api/send', {
+      await axios.post(apiEndpoints.send, {
         email: selectedEmployee.email,
         name: `${selectedEmployee.first_name} ${selectedEmployee.last_name}`,
         company: domain, // Heuristic: domain as company name
@@ -173,7 +174,7 @@ export default function Home() {
     }
     setManualLoading(true);
     try {
-      await axios.post('http://localhost:5000/api/send', {
+      await axios.post(apiEndpoints.send, {
         email: manualData.email,
         name: "Uttam Gohil", // Hardcoded as per requirement
         company: manualData.company,

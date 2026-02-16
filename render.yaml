@@ -1,0 +1,31 @@
+services:
+  # Backend API
+  - type: web
+    name: job-outreach-backend
+    env: node
+    region: oregon
+    buildCommand: cd server && npm install
+    startCommand: cd server && npm start
+    envVars:
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      - key: HUNTER_API_KEY
+        sync: false
+      - key: PORT
+        value: 5000
+
+  # Frontend
+  - type: web
+    name: job-outreach-frontend
+    env: node
+    region: oregon
+    buildCommand: cd client && npm install && npm run build
+    startCommand: cd client && npm start
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          type: web
+          name: job-outreach-backend
+          property: host
