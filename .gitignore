@@ -39,10 +39,7 @@ coverage/
 # Storage (local data)
 storage/data.json
 
-# Files
-files/*.pdf
-files/*.doc
-files/*.docx
+
 
 # Keep template files but ignore user uploads
 !templates/
