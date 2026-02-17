@@ -104,18 +104,27 @@ app.post('/api/send', async (req, res) => {
     //     rateLimit: 5 // Limit messages per second
     // });
 
+    // Resolve smtp.gmail.com to an IPv4 address explicitly to avoid
+    // Render/cloud environments routing through IPv6 (ENETUNREACH)
+    const smtpHost = await new Promise((resolve, reject) => {
+        dns.resolve4('smtp.gmail.com', (err, addresses) => {
+            if (err) reject(err);
+            else resolve(addresses[0]);
+        });
+    });
+    
     const transporter = nodemailer.createTransport({
-        host: 'smtp.gmail.com',
-        port: 587,          // ✅ CHANGE
-        secure: false,      // ✅ MUST be false for 587
+        host: smtpHost,     // Use resolved IPv4 address directly
+        port: 587,
+        secure: false,
         auth: {
             user: process.env.GMAIL_USER,
             pass: process.env.GMAIL_APP_PASSWORD
         },
         tls: {
-            rejectUnauthorized: false
-        },
-        family: 4
+            rejectUnauthorized: false,
+            servername: 'smtp.gmail.com' // Validate cert against the real hostname
+        }
     });
 
 
