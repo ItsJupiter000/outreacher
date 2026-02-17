@@ -10,7 +10,17 @@ const axios = require('axios');
 dotenv.config();
 
 const app = express();
-app.use(cors());
+// app.use(cors());
+app.use(cors({
+    origin: [
+        'https://outreacher-one.vercel.app',
+        'https://outreacher-2eyekdmbh-itsjupiter000s-projects.vercel.app',
+        'http://localhost:5173' // for local development
+    ],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
 
 const DATA_FILE = path.join(__dirname, '../storage/data.json');
