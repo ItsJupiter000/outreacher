@@ -83,7 +83,7 @@ app.post('/api/send', async (req, res) => {
             const resumeContent = fs.readFileSync(RESUME_FILE); // Buffer
 
             const { error } = await resend.emails.send({
-                from: process.env.FROM_EMAIL,   // e.g. 'Your Name <you@yourdomain.com>'
+                from: process.env.FROM_EMAIL || 'onboarding@resend.dev',
                 to: email,
                 subject: `Opportunity at ${company}`,
                 html: template,
