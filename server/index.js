@@ -1,3 +1,7 @@
+const dns = require('dns');
+// Fix 1: Force IPv4 DNS resolution FIRST, before any other imports or network calls
+dns.setDefaultResultOrder('ipv4first');
+
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
@@ -5,15 +9,13 @@ const path = require('path');
 const dotenv = require('dotenv');
 const nodemailer = require('nodemailer');
 const axios = require('axios');
-const dns = require('dns');
+const { promisify } = require('util');
 
-// Force IPv4 for DNS resolution to avoid ENETUNREACH on some networks
-dns.setDefaultResultOrder('ipv4first');
+const dnsLookup = promisify(dns.lookup);
 
 dotenv.config();
 
 const app = express();
-// app.use(cors());
 app.use(cors({
     origin: '*',
     credentials: false
@@ -85,58 +87,48 @@ app.post('/api/send', async (req, res) => {
     // Load template
     let template = fs.readFileSync(TEMPLATE_FILE, 'utf8');
     template = template.replace('{{company_name}}', company);
-    // You could replace other fields too like {{name}}
-
-    // Nodemailer transport
-    // const transporter = nodemailer.createTransport({
-    //     service: 'gmail',
-    //     host: 'smtp.gmail.com',
-    //     port: 465,
-    //     secure: true, // Use SSL
-    //     auth: {
-    //         user: process.env.GMAIL_USER,
-    //         pass: process.env.GMAIL_APP_PASSWORD
-    //     },
-    //     // Force IPv4 to avoid ENETUNREACH errors on some networks (like Render/Vercel)
-    //     family: 4,
-    //     pool: true, // Use pooled connections for better performance
-    //     maxConnections: 1, // Limit concurrent connections to avoid rate limits
-    //     rateLimit: 5 // Limit messages per second
-    // });
-
-    // Configure Nodemailer with standard settings and forced IPv4
-    const transporter = nodemailer.createTransport({
-        host: 'smtp.gmail.com',
-        port: 587,
-        secure: false, // true for 465, false for other ports
-        auth: {
-            user: process.env.GMAIL_USER,
-            pass: process.env.GMAIL_APP_PASSWORD
-        },
-        // Force IPv4 to avoid ENETUNREACH errors commonly seen on platforms like Render due to IPv6 routing issues
-        family: 4
-    });
-
-
-    const mailOptions = {
-        from: process.env.GMAIL_USER,
-        to: email,
-        subject: `Opportunity at ${company}`,
-        html: template,
-        attachments: [
-            {
-                filename: 'Resume.pdf',
-                path: RESUME_FILE
-            }
-        ]
-    };
 
     try {
-        debugger;
         if (!process.env.GMAIL_APP_PASSWORD || process.env.GMAIL_APP_PASSWORD === 'your_app_password_here') {
             console.log('Simulating email send to', email);
-            // Simulate success
+            // Simulate success — skip actual send
         } else {
+            // Fix 2 & 3: Pre-resolve smtp.gmail.com to an IPv4 address, then pass
+            // socketOptions: { family: 4 } so the socket itself also stays on IPv4.
+            // This combination is the most reliable way to avoid ENETUNREACH on
+            // platforms (e.g. Render) that default to IPv6 but don't support it.
+            const { address: smtpAddress } = await dnsLookup('smtp.gmail.com', { family: 4 });
+            console.log(`Resolved smtp.gmail.com → ${smtpAddress} (IPv4)`);
+
+            const transporter = nodemailer.createTransport({
+                host: smtpAddress,       // Use resolved IPv4 address directly
+                port: 587,
+                secure: false,           // STARTTLS on port 587
+                auth: {
+                    user: process.env.GMAIL_USER,
+                    pass: process.env.GMAIL_APP_PASSWORD
+                },
+                tls: {
+                    // Required when connecting via raw IP instead of hostname
+                    servername: 'smtp.gmail.com'
+                },
+                // Fix 2: Ensure the underlying socket also uses IPv4
+                socketOptions: { family: 4 }
+            });
+
+            const mailOptions = {
+                from: process.env.GMAIL_USER,
+                to: email,
+                subject: `Opportunity at ${company}`,
+                html: template,
+                attachments: [
+                    {
+                        filename: 'Resume.pdf',
+                        path: RESUME_FILE
+                    }
+                ]
+            };
+
             await transporter.sendMail(mailOptions);
         }
 
