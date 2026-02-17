@@ -88,21 +88,36 @@ app.post('/api/send', async (req, res) => {
     // You could replace other fields too like {{name}}
 
     // Nodemailer transport
+    // const transporter = nodemailer.createTransport({
+    //     service: 'gmail',
+    //     host: 'smtp.gmail.com',
+    //     port: 465,
+    //     secure: true, // Use SSL
+    //     auth: {
+    //         user: process.env.GMAIL_USER,
+    //         pass: process.env.GMAIL_APP_PASSWORD
+    //     },
+    //     // Force IPv4 to avoid ENETUNREACH errors on some networks (like Render/Vercel)
+    //     family: 4,
+    //     pool: true, // Use pooled connections for better performance
+    //     maxConnections: 1, // Limit concurrent connections to avoid rate limits
+    //     rateLimit: 5 // Limit messages per second
+    // });
+
     const transporter = nodemailer.createTransport({
-        service: 'gmail',
         host: 'smtp.gmail.com',
-        port: 465,
-        secure: true, // Use SSL
+        port: 587,          // ✅ CHANGE
+        secure: false,      // ✅ MUST be false for 587
         auth: {
             user: process.env.GMAIL_USER,
             pass: process.env.GMAIL_APP_PASSWORD
         },
-        // Force IPv4 to avoid ENETUNREACH errors on some networks (like Render/Vercel)
-        family: 4,
-        pool: true, // Use pooled connections for better performance
-        maxConnections: 1, // Limit concurrent connections to avoid rate limits
-        rateLimit: 5 // Limit messages per second
+        tls: {
+            rejectUnauthorized: false
+        },
+        family: 4
     });
+
 
     const mailOptions = {
         from: process.env.GMAIL_USER,
