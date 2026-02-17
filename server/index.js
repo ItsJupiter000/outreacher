@@ -5,6 +5,10 @@ const path = require('path');
 const dotenv = require('dotenv');
 const nodemailer = require('nodemailer');
 const axios = require('axios');
+const dns = require('dns');
+
+// Force IPv4 for DNS resolution to avoid ENETUNREACH on some networks
+dns.setDefaultResultOrder('ipv4first');
 
 dotenv.config();
 
