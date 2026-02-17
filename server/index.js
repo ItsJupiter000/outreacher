@@ -1,17 +1,9 @@
-const dns = require('dns');
-// Fix 1: Force IPv4 DNS resolution FIRST, before any other imports or network calls
-dns.setDefaultResultOrder('ipv4first');
-
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const dotenv = require('dotenv');
-const nodemailer = require('nodemailer');
-const axios = require('axios');
-const { promisify } = require('util');
-
-const dnsLookup = promisify(dns.lookup);
+const { Resend } = require('resend');  // npm install resend
 
 dotenv.config();
 
@@ -29,9 +21,9 @@ const RESUME_FILE = path.join(__dirname, '../files/resume.pdf');
 // Helper to read data
 const readData = () => {
     if (!fs.existsSync(DATA_FILE)) return [];
-    const data = fs.readFileSync(DATA_FILE, 'utf8');
-    if (!data || data.trim() === '') return [];
-    return JSON.parse(data);
+    const raw = fs.readFileSync(DATA_FILE, 'utf8');
+    if (!raw || raw.trim() === '') return [];
+    return JSON.parse(raw);
 };
 
 // Helper to write data
@@ -44,36 +36,30 @@ app.post('/api/search', async (req, res) => {
     const { domain } = req.body;
     if (!domain) return res.status(400).json({ error: 'Domain is required' });
 
+    const isRelevant = (p) => {
+        const title = (p.position || '').toLowerCase();
+        const dept = (p.department || '').toLowerCase();
+        return title.includes('hr') || title.includes('talent') ||
+            title.includes('recruiter') || title.includes('people') ||
+            dept.includes('hr') || dept.includes('people');
+    };
+
     try {
-        // Mock response if no API key
         if (!process.env.HUNTER_API_KEY || process.env.HUNTER_API_KEY === 'your_hunter_api_key_here') {
-            console.log('Using Mock Data for Hunter.io');
+            console.log('Using mock data for Hunter.io');
             const mockData = [
                 { first_name: 'John', last_name: 'Doe', email: 'john@' + domain, position: 'HR Manager', department: 'HR' },
                 { first_name: 'Jane', last_name: 'Smith', email: 'jane@' + domain, position: 'Talent Acquisition', department: 'HR' },
-                { first_name: 'Mike', last_name: 'Ross', email: 'mike@' + domain, position: 'Software Engineer', department: 'Engineering' } // Should be filtered out
+                { first_name: 'Mike', last_name: 'Ross', email: 'mike@' + domain, position: 'Software Engineer', department: 'Engineering' }
             ];
-            // Filter relevant departments/titles
-            const relevant = mockData.filter(p => {
-                const title = (p.position || '').toLowerCase();
-                const dept = (p.department || '').toLowerCase();
-                return title.includes('hr') || title.includes('talent') || title.includes('recruiter') || title.includes('people') || dept.includes('hr') || dept.includes('people');
-            });
-
-            return res.json(relevant);
+            return res.json(mockData.filter(isRelevant));
         }
 
-        const response = await axios.get(`https://api.hunter.io/v2/domain-search?domain=${domain}&api_key=${process.env.HUNTER_API_KEY}`);
-        const emails = response.data.data.emails;
-
-        // Filter logic
-        const relevant = emails.filter(p => {
-            const title = (p.position || '').toLowerCase();
-            const dept = (p.department || '').toLowerCase();
-            return title.includes('hr') || title.includes('talent') || title.includes('recruiter') || title.includes('people') || dept.includes('hr') || dept.includes('people');
-        });
-
-        res.json(relevant);
+        const axios = require('axios');
+        const response = await axios.get(
+            `https://api.hunter.io/v2/domain-search?domain=${domain}&api_key=${process.env.HUNTER_API_KEY}`
+        );
+        res.json(response.data.data.emails.filter(isRelevant));
     } catch (error) {
         console.error('Hunter API Error:', error.response?.data || error.message);
         res.status(500).json({ error: 'Failed to fetch data' });
@@ -81,60 +67,43 @@ app.post('/api/search', async (req, res) => {
 });
 
 // API: Send Email
+// Uses Resend (https://resend.com) via HTTP — works on Render free tier.
+// Render blocks outbound SMTP ports 25/465/587 on free instances,
+// so nodemailer/direct-SMTP will always ETIMEDOUT there.
 app.post('/api/send', async (req, res) => {
     const { email, name, company, position, source } = req.body;
 
-    // Load template
-    let template = fs.readFileSync(TEMPLATE_FILE, 'utf8');
-    template = template.replace('{{company_name}}', company);
-
     try {
-        if (!process.env.GMAIL_APP_PASSWORD || process.env.GMAIL_APP_PASSWORD === 'your_app_password_here') {
-            console.log('Simulating email send to', email);
-            // Simulate success — skip actual send
+        const template = fs.readFileSync(TEMPLATE_FILE, 'utf8').replace('{{company_name}}', company);
+
+        if (!process.env.RESEND_API_KEY || process.env.RESEND_API_KEY === 'your_resend_api_key_here') {
+            console.log('No RESEND_API_KEY set — simulating email send to', email);
         } else {
-            // Fix 2 & 3: Pre-resolve smtp.gmail.com to an IPv4 address, then pass
-            // socketOptions: { family: 4 } so the socket itself also stays on IPv4.
-            // This combination is the most reliable way to avoid ENETUNREACH on
-            // platforms (e.g. Render) that default to IPv6 but don't support it.
-            const { address: smtpAddress } = await dnsLookup('smtp.gmail.com', { family: 4 });
-            console.log(`Resolved smtp.gmail.com → ${smtpAddress} (IPv4)`);
+            const resend = new Resend(process.env.RESEND_API_KEY);
+            const resumeContent = fs.readFileSync(RESUME_FILE); // Buffer
 
-            const transporter = nodemailer.createTransport({
-                host: smtpAddress,       // Use resolved IPv4 address directly
-                port: 587,
-                secure: false,           // STARTTLS on port 587
-                auth: {
-                    user: process.env.GMAIL_USER,
-                    pass: process.env.GMAIL_APP_PASSWORD
-                },
-                tls: {
-                    // Required when connecting via raw IP instead of hostname
-                    servername: 'smtp.gmail.com'
-                },
-                // Fix 2: Ensure the underlying socket also uses IPv4
-                socketOptions: { family: 4 }
-            });
-
-            const mailOptions = {
-                from: process.env.GMAIL_USER,
+            const { error } = await resend.emails.send({
+                from: process.env.FROM_EMAIL,   // e.g. 'Your Name <you@yourdomain.com>'
                 to: email,
                 subject: `Opportunity at ${company}`,
                 html: template,
                 attachments: [
                     {
                         filename: 'Resume.pdf',
-                        path: RESUME_FILE
+                        content: resumeContent  // Resend accepts a Buffer directly
                     }
                 ]
-            };
+            });
 
-            await transporter.sendMail(mailOptions);
+            if (error) {
+                console.error('Resend API error:', error);
+                return res.status(500).json({ error: 'Failed to send email', detail: error.message });
+            }
         }
 
-        // Update storage
+        // Persist record
         const currentData = readData();
-        const newRecord = {
+        currentData.push({
             id: Date.now().toString(),
             company_name: company,
             hr_name: name,
@@ -143,32 +112,30 @@ app.post('/api/send', async (req, res) => {
             status: 'sent',
             sent_at: new Date().toISOString(),
             source: source || 'manual'
-        };
-        currentData.push(newRecord);
+        });
         writeData(currentData);
 
         res.json({ success: true });
     } catch (error) {
-        console.error('Email Send Error:', error);
+        console.error('Send Error:', error);
         res.status(500).json({ error: 'Failed to send email' });
     }
 });
 
 // API: Dashboard Data
 app.get('/api/dashboard', (req, res) => {
-    const data = readData();
-    res.json(data);
+    res.json(readData());
 });
 
 // API: Update Status
 app.put('/api/status', (req, res) => {
     const { id, status } = req.body;
-    const currentData = readData();
-    const index = currentData.findIndex(r => r.id === id);
+    const data = readData();
+    const index = data.findIndex(r => r.id === id);
 
     if (index !== -1) {
-        currentData[index].status = status;
-        writeData(currentData);
+        data[index].status = status;
+        writeData(data);
         res.json({ success: true });
     } else {
         res.status(404).json({ error: 'Record not found' });
@@ -178,10 +145,10 @@ app.put('/api/status', (req, res) => {
 // API: Delete Record
 app.delete('/api/record/:id', (req, res) => {
     const { id } = req.params;
-    const currentData = readData();
-    const filtered = currentData.filter(r => r.id !== id);
+    const data = readData();
+    const filtered = data.filter(r => r.id !== id);
 
-    if (filtered.length < currentData.length) {
+    if (filtered.length < data.length) {
         writeData(filtered);
         res.json({ success: true });
     } else {
@@ -190,6 +157,4 @@ app.delete('/api/record/:id', (req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
