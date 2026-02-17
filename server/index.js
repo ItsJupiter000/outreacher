@@ -5,10 +5,6 @@ const path = require('path');
 const dotenv = require('dotenv');
 const nodemailer = require('nodemailer');
 const axios = require('axios');
-const dns = require('dns');
-
-// Force IPv4 for DNS resolution to avoid ENETUNREACH on some networks
-dns.setDefaultResultOrder('ipv4first');
 
 dotenv.config();
 
@@ -104,27 +100,17 @@ app.post('/api/send', async (req, res) => {
     //     rateLimit: 5 // Limit messages per second
     // });
 
-    // Resolve smtp.gmail.com to an IPv4 address explicitly to avoid
-    // Render/cloud environments routing through IPv6 (ENETUNREACH)
-    const smtpHost = await new Promise((resolve, reject) => {
-        dns.resolve4('smtp.gmail.com', (err, addresses) => {
-            if (err) reject(err);
-            else resolve(addresses[0]);
-        });
-    });
-    
+    // Configure Nodemailer with standard settings and forced IPv4
     const transporter = nodemailer.createTransport({
-        host: smtpHost,     // Use resolved IPv4 address directly
+        host: 'smtp.gmail.com',
         port: 587,
-        secure: false,
+        secure: false, // true for 465, false for other ports
         auth: {
             user: process.env.GMAIL_USER,
             pass: process.env.GMAIL_APP_PASSWORD
         },
-        tls: {
-            rejectUnauthorized: false,
-            servername: 'smtp.gmail.com' // Validate cert against the real hostname
-        }
+        // Force IPv4 to avoid ENETUNREACH errors commonly seen on platforms like Render due to IPv6 routing issues
+        family: 4
     });
 
 
